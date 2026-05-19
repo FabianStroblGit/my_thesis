@@ -1,0 +1,109 @@
+{
+  "paths": {
+    "ffmpeg_path": "ffmpeg/ffmpeg",
+    "video_output_dir": "videos",
+    "experiment_output_dir": "experiments"
+  },
+  "simulation": {
+    "dt": 0.01,
+    "nr_steps": 14000,
+    "nr_steps_exploration": 14000,
+    "nr_trials": 1,
+    "nr_plots": 5
+  },
+  "grid_cell_network": {
+    "modules": 6,
+    "sheet_size": 40,
+    "gmin": 0.2,
+    "gmax": 2.4,
+    "from_data": false
+  },
+  "environment": {
+    "visualize": false,
+    "env_model": "linear_sunburst",
+    "vector_model": "linear_lookahead",
+    "doors_option": "plane_doors"
+  },
+  "phase_offset_detector": {
+    "phase_bins": 16,
+    "speed_bins": 9
+  },
+  "video": {
+    "enabled": false,
+    "fps": 5
+  },
+  "plotting": {
+    "plot_matching_vectors": false,
+    "live_plot": true,
+    "live_plot_interval": 50
+  },
+  "camera": {
+    "enabled": true,
+    "width": 320,
+    "height": 240,
+    "fov": 60.0,
+    "near": 0.1,
+    "far": 10.0,
+    "attach_to_agent": true,
+    "relative_position": [
+      0.2,
+      0.0,
+      0.25
+    ],
+    "relative_target": [
+      1.2,
+      0.0,
+      0.15
+    ],
+    "relative_up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "position": [
+      5.5,
+      0.5,
+      3.5
+    ],
+    "target": [
+      5.5,
+      5.5,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "exploration": {
+    "type": "a2c",
+    "skip_left_lower_init": true
+  },
+  "a2c_exploration": {
+    "enabled": true,
+    "learning_rate": 0.0003,
+    "gamma": 0.99,
+    "entropy_coef": 0.01,
+    "value_coef": 0.5,
+    "lambda_novelty": 1.0,
+    "lambda_recency": 0.5,
+    "recency_decay": 0.01,
+    "max_exploration_steps": 500,
+    "path_recheck_interval": 50,
+    "batch_size": 32,
+    "checkpoint_path": "/Users/fabian/Bachelor Thesis/Repository/BA_bio_inspired_navigation-main/data/a2c_pretrained.pt",
+    "save_path": null,
+    "frozen": true
+  },
+  "thigmotaxis": {
+    "enabled": true,
+    "legacy": false
+  },
+  "random_exploration": {},
+  "active_inference_v2": {
+    "anisotropy_weight": 1.5,
+    "momentum_weight": 0.2,
+    "virtual_min_real_dist": 0.3
+  }
+}

@@ -1,0 +1,65 @@
+# ─── Python ─────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.so
+
+# ─── Virtual environments ──────────────────────────────────────────────────
+.venv/
+venv/
+env/
+.python-version
+
+# ─── OS / editor / tooling junk ────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+.claude/
+*.swp
+*.swo
+
+# ─── Run outputs (regenerated every execution) ─────────────────────────────
+# Timestamped log files from main.py
+logs/
+
+# Per-trial saved arrays (error_array, gc_array, position_array, vectors_array)
+experiments/
+
+# Video exports
+videos/
+
+# Static figures produced by generate_maze_figures.py
+figures/
+
+# Linear-lookahead debug plots
+plots/
+
+# Per-run trajectory PNGs from the benchmark sweeps
+benchmark_a2c_plots/
+benchmark_ai_plots/
+benchmark_random_plots/
+
+# Aggregate JSON summaries from benchmarks
+benchmark_*_results_*.json
+
+# Per-run config.json backups the benchmark scripts leave behind if interrupted
+config.benchmark_*_backup.json
+
+# Benchmark snapshot/restore directories
+.benchmark_a2c_init/
+.benchmark_a2c_original/
+.benchmark_ai_init/
+.benchmark_ai_original/
+.benchmark_random_init/
+.benchmark_random_original/
+
+# ─── Generated cognitive-map artifacts ─────────────────────────────────────
+# Place-cell and cognitive-map state. Rebuilt by every INIT (exploration)
+# run; do NOT commit. The pretrained grid-cell weights in data/gc_model/
+# and data/a2c_pretrained.pt ARE tracked because they're fixed inputs.
+data/pc_model/
+data/cognitive_map/
