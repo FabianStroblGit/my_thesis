@@ -1,21 +1,4 @@
-"""
-benchmark_a2c.py — Run A2C with and without thigmotaxis for N runs each.
-
-Workflow:
-  1. Snapshot existing data files.
-  2. Run a fresh INIT (exploration) phase: from_data=false, nr_steps=nr_steps_exploration=14000,
-     doors_option=plane_doors. This populates GC/PC/cognitive-map from scratch.
-  3. Snapshot the init result.
-  4. For each thigmotaxis setting, run N navigation episodes (from_data=true,
-     150k steps, plane_doors_individual), restoring the init snapshot each time.
-  5. Restore the original snapshot.
-
-Saves a trajectory screenshot after every run to benchmark_a2c_plots/.
-
-Usage:
-    python benchmark_a2c.py              # 5 runs per config (default)
-    python benchmark_a2c.py --runs 10    # 10 runs per config
-"""
+"""benchmark_a2c.py — Run A2C with and without thigmotaxis for N runs each."""
 
 import argparse
 import json
@@ -65,11 +48,7 @@ def load_config() -> dict:
 
 def run_with_config(label: str, cfg_override: dict, plot_path: str = None,
                     quiet: bool = False, live: bool = False) -> dict:
-    """Run main.py with overridden config and return parsed metrics dict.
-
-    When ``live`` is True, the subprocess keeps the interactive matplotlib
-    backend so the LiveCognitiveMapPlot window appears during the run.
-    """
+    """Run main.py with overridden config and return parsed metrics dict."""
     cfg = load_config()
 
     def deep_merge(base, override):
@@ -81,16 +60,11 @@ def run_with_config(label: str, cfg_override: dict, plot_path: str = None,
 
     deep_merge(cfg, cfg_override)
 
-    # Per-script suffix so parallel benchmark invocations don't race over
-    # the same backup file. PID is included for safety against accidental
-    # double-invocation of the same script.
+    # PID-suffixed paths so parallel benchmark invocations don't collide.
     tmp_cfg = CONFIG_PATH.with_suffix(f".benchmark_a2c_{os.getpid()}_tmp.json")
     backup = CONFIG_PATH.with_suffix(f".benchmark_a2c_{os.getpid()}_backup.json")
 
     metrics = {}
-    # Copy (not rename) the original so config.json stays on disk for the
-    # whole subprocess lifetime — if this script is hard-killed there's no
-    # window in which the user's config could disappear.
     shutil.copy2(CONFIG_PATH, backup)
     try:
         with tmp_cfg.open("w", encoding="utf-8") as f:
@@ -103,11 +77,7 @@ def run_with_config(label: str, cfg_override: dict, plot_path: str = None,
         env = os.environ.copy()
         if plot_path:
             env["BENCHMARK_PLOT_PATH"] = str(plot_path)
-        # Headless matplotlib by default for benchmarks; interactive when
-        # --live was passed so the user can watch the cog-map update.
         env["HEADLESS_MPL"] = "0" if live else "1"
-        # Skip the per-lookahead diagnostic PDF saves — these are heavy I/O
-        # and only useful when interactively debugging the lookahead.
         env["BENCHMARK_NO_PLOTS"] = "1"
 
         proc = subprocess.Popen(
@@ -127,7 +97,6 @@ def run_with_config(label: str, cfg_override: dict, plot_path: str = None,
                 except json.JSONDecodeError:
                     pass
 
-            # Only show progress, goal, and profiling lines
             if not quiet and (line.startswith("Progress:")
                               or "[GOAL]" in line
                               or "[PROF]" in line):
@@ -137,9 +106,6 @@ def run_with_config(label: str, cfg_override: dict, plot_path: str = None,
         proc.wait()
 
     finally:
-        # Defensive restore — if the backup is missing (e.g. a parallel
-        # benchmark deleted it under an older shared filename), log and skip
-        # rather than crash.
         if backup.exists():
             shutil.copy2(backup, CONFIG_PATH)
             backup.unlink(missing_ok=True)
@@ -241,8 +207,6 @@ def main():
             sys.exit(f"[benchmark] missing URDF for door {d}: {urdf}\n"
                      f"            run: python environment/linear_sunburst_map/generate_door_variants.py")
 
-    # Unique run-id stamps every output of this benchmark invocation so
-    # consecutive runs do not overwrite each other's plots or results JSON.
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     plot_dir_run = PLOT_DIR / run_id
 
@@ -253,12 +217,10 @@ def main():
 
     plot_dir_run.mkdir(parents=True, exist_ok=True)
 
-    # ── Step 1: snapshot original data ──
     original_snapshot = ROOT / ".benchmark_a2c_original"
     snapshot_data(original_snapshot)
     print(f"[benchmark] Original data snapshot saved")
 
-    # ── Step 2: run init (exploration) phase ──
     print(f"\n{'='*60}")
     print(f"  INIT  [exploration phase — from_data=false, plane_doors]")
     print(f"{'='*60}")
@@ -273,9 +235,8 @@ def main():
             },
             "grid_cell_network": {"from_data": False},
             "environment": {"doors_option": "plane_doors"},
-            # Skip the leftward sweep of the lower corridor so the three
-            # leftmost PCs ([1.5,4.5], [2.5,4.5], [3.5,4.5]) are never created
-            # during exploration. A2C-benchmark-only.
+            # Skip leftward sweep so the three leftmost lower-corridor PCs
+            # are not created during exploration.
             "exploration": {"skip_left_lower_init": True},
         },
         plot_path=str(init_plot),
@@ -284,12 +245,10 @@ def main():
     )
     print("[benchmark] Init (exploration) phase complete")
 
-    # ── Step 3: snapshot init result ──
     init_snapshot = ROOT / ".benchmark_a2c_init"
     snapshot_data(init_snapshot)
     print("[benchmark] Init data snapshot saved")
 
-    # ── Step 4: run each config ──
     all_results = {}
 
     for door_idx in door_list:
@@ -321,7 +280,6 @@ def main():
                         "enabled": thigmo,
                         "legacy": bool(args.legacy_thigmo),
                     },
-                    # Enable the live cog-map window when --live was passed.
                     "plotting": {"live_plot": live},
                 }
                 if pretrained_path is not None:
@@ -344,11 +302,9 @@ def main():
 
             all_results[config_label] = runs
 
-    # ── Step 5: restore original data ──
     restore_data(original_snapshot)
     print("\n[benchmark] Original data restored")
 
-    # ── Summary ──
     print(f"\n{'='*70}")
     print("  A2C BENCHMARK SUMMARY")
     print(f"{'='*70}")
@@ -377,9 +333,6 @@ def main():
     print(f"  Plots saved to {plot_dir_run}/")
     print(f"{'='*70}\n")
 
-    # Save the aggregate summary (mean +/- std across runs) instead of
-    # the raw per-run metrics. The thesis only ever consumes the
-    # aggregate; the per-run JSON ballooned with every benchmark.
     from benchmark_summary import build_aggregate
     out_path = ROOT / f"benchmark_a2c_results_{run_id}.json"
     with out_path.open("w", encoding="utf-8") as f:

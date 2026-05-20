@@ -1,12 +1,4 @@
-"""
-pretrain_a2c.py — Pre-train an A2C policy across N navigation episodes
-and save the final checkpoint to disk.
-
-Usage:
-    python pretrain_a2c.py                          # 10 episodes -> data/a2c_pretrained.pt
-    python pretrain_a2c.py --episodes 20            # 20 episodes -> data/a2c_pretrained.pt
-    python pretrain_a2c.py --output data/my_a2c.pt
-"""
+"""pretrain_a2c.py — Pre-train an A2C policy across N episodes and save the final checkpoint."""
 
 import argparse
 import json
@@ -103,7 +95,6 @@ def run_with_config(label: str, cfg_override: dict, quiet: bool = True) -> dict:
 
         proc.wait()
     finally:
-        # Restore the original from the backup copy, then delete the backup.
         shutil.copy2(backup, CONFIG_PATH)
         backup.unlink(missing_ok=True)
         tmp_cfg.unlink(missing_ok=True)
@@ -192,7 +183,7 @@ def main():
             "grid_cell_network": {"from_data": False},
             "environment": {"doors_option": "plane_doors"},
         },
-        quiet=False,  # Forward Progress lines so user sees INIT is alive.
+        quiet=False,  # Forward Progress lines so the user sees INIT is alive.
     )
     print(f"[pretrain] Init (exploration) phase complete in "
           f"{_time.time() - init_wall_start:.0f}s")
@@ -273,7 +264,6 @@ def main():
     restore_data(original_snapshot)
     print("\n[pretrain] Original data restored")
 
-    # ── Summary ──
     print(f"\n{'=' * 70}")
     print("  PRE-TRAINING SUMMARY")
     print(f"{'=' * 70}")

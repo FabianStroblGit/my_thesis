@@ -17,12 +17,10 @@ cmapblue = mcolors.LinearSegmentedColormap.from_list('mycmap', colors, N=10)
 csfont = {'fontname':'Comic Sans MS'}
 hfont = {'fontname':'Avenir'}
 
-cmap = plt.cm.get_cmap("tab20")  # define the colormap
-# extract all colors from the .jet map
+cmap = plt.cm.get_cmap("tab20")
 cmaplist = [cmap(i) for i in range(cmap.N)]
-# force the first color entry to be grey
+# First color entry is forced to grey
 cmaplist[0] = (.9, .9, .9, 0.8)
-# create the new map
 cmap20 = mcolors.LinearSegmentedColormap.from_list(
     'Custom cmap', cmaplist, cmap.N)
 
@@ -74,11 +72,11 @@ def plotTrajectory(xy_coordinates, orientation_angle):
             yi = y[i]
             label = str(int(i / step_label))
 
-            plt.annotate(label,  # this is the text
-                         (xi, yi),  # this is the point to label
-                         textcoords="offset points",  # how to position the text
-                         xytext=(0, 0.1),  # distance from text to points (x,y)
-                         ha='center')  # horizontal alignment can be left, right or center
+            plt.annotate(label,
+                         (xi, yi),
+                         textcoords="offset points",
+                         xytext=(0, 0.1),
+                         ha='center')
 
     plt.axis('equal')
     plt.legend(['Trajectory'])
@@ -190,7 +188,6 @@ def plot_current_state(env, gc_modules, f_gc, f_t, f_mon,
 
     xy_coordinates = env.xy_coordinates
 
-    # Trajectory plot
     f_t.clear()
     limits_t = compute_axis_limits(env.arena_size, environment=env.env_model)
 
@@ -209,12 +206,9 @@ def plot_current_state(env, gc_modules, f_gc, f_t, f_mon,
     x, y = zip(*xy_coordinates)
     f_t.scatter(x[0], y[0], color=TUM_colors['TUMGray'], s=1)
 
-    # Plot obstacles
     add_environment(f_t, env.env_model, getattr(env, "door_positions", None))
     add_robot(f_t, env)
 
-
-    # Grid Cell Modules plot
     for m, gc in enumerate(gc_modules):
         if m < 4:
             f_gc[m].clear()
@@ -241,7 +235,6 @@ def plot_current_state(env, gc_modules, f_gc, f_t, f_mon,
 
                 f_gc[m].quiver(origin_x, origin_y, vectors_x, vectors_y, color=TUM_colors['TUMDarkGray'], width=0.01, scale=1, scale_units='xy')
 
-    # Description Plot
     f_mon.clear()
     f_mon.axis("off")
     if exploration_phase:
@@ -298,83 +291,59 @@ def error_plot(error_array):
 
 class LiveCognitiveMapPlot:
     """Live-updating cognitive map visualization that doesn't block."""
-    
+
     def __init__(self, environment=None, door_positions=None, update_interval=50):
-        """Initialize the live plot window.
-        
-        Args:
-            environment: str, environment name for plotting obstacles
-            door_positions: list, door positions for plotting
-            update_interval: int, only redraw every N calls to update() for performance
-        """
-        plt.ion()  # Enable interactive mode
+        """Initialize the live plot window."""
+        plt.ion()
         self.fig, self.ax = plt.subplots(figsize=(10, 8))
         self.environment = environment
         self.door_positions = door_positions
         self.update_interval = update_interval
         self.update_counter = 0
 
-        # Store plot elements for efficient updates
         self.trajectory_lines = []
         self.trajectory_starts = []
         self.trajectory_ends = []
         self.pc_circles = []
         self.connection_lines = []
-        
-        # Add environment once
+
         add_environment(self.ax, environment, door_positions)
-        
-        # Set axis limits
+
         limits = compute_axis_limits(11, environment=environment)
         self.ax.set_xlim(limits[0], limits[1])
         self.ax.set_ylim(limits[2], limits[3])
-        
+
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
-        
-    def update(self, pc_network, cognitive_map, xy_coordinates=None, step=None):
-        """Update the live plot with current state.
 
-        Args:
-            pc_network: PlaceCellNetwork
-            cognitive_map: CognitiveMapNetwork
-            xy_coordinates: agent trajectory
-            step: current simulation step (optional, for title)
-        """
+    def update(self, pc_network, cognitive_map, xy_coordinates=None, step=None):
+        """Update the live plot with current state."""
         self.update_counter += 1
         if self.update_counter % self.update_interval != 0:
-            return  # Skip this update for performance
+            return
 
         self.ax.clear()
 
-        # Re-add environment
         add_environment(self.ax, self.environment, self.door_positions)
 
-        # Set axis limits
         limits = compute_axis_limits(11, environment=self.environment)
         self.ax.set_xlim(limits[0], limits[1])
         self.ax.set_ylim(limits[2], limits[3])
 
-        # Cap the rendered trajectory at the last `tail` points so that
-        # very long runs (>50k steps) don't make every plot update
-        # O(N) in trajectory length — that was producing seconds-per-update
-        # rendering after ~100k steps and grinding the live demo to a halt.
-        # The start marker (X) is plotted from the absolute first point so
-        # the user can still see where the agent began.
+        # Cap trajectory rendering at the last `tail` points to keep update
+        # cost bounded on very long runs.
         tail = getattr(self, "trajectory_tail", 5000)
 
         if xy_coordinates is not None and len(xy_coordinates) > 0:
             tail_slice = xy_coordinates[-tail:] if len(xy_coordinates) > tail else xy_coordinates
             x, y = zip(*tail_slice)
-            # Plot trajectory tail line + current position marker
             self.ax.plot(x, y, c='red', alpha=0.6, linewidth=1.5, label='Agent')
             x0, y0 = xy_coordinates[0]
             self.ax.scatter(x0, y0, s=80, c='red', marker='x', linewidths=2)
             self.ax.scatter(x[-1], y[-1], s=150, c='red', marker='o',
                            edgecolors='black', linewidths=2, zorder=10)
             self.ax.legend(loc='upper right', fontsize=8)
-        
-        # Plot place cells
+
         for i, pc in enumerate(pc_network.place_cells):
             circle = plt.Circle((pc.env_coordinates[0], pc.env_coordinates[1]), 0.3,
                                 fc='r', alpha=cognitive_map.reward_cells[i]**2 * 0.6, ec='k')
@@ -382,22 +351,19 @@ class LiveCognitiveMapPlot:
             circle_border = plt.Circle((pc.env_coordinates[0], pc.env_coordinates[1]), 0.3,
                                        alpha=0.2, ec='k', fill=False)
             self.ax.add_artist(circle_border)
-            
-            # Plot connections
+
             for j, connection in enumerate(cognitive_map.topology_cells[i]):
                 if connection == 1 and i != j:
                     x_values = [pc.env_coordinates[0], pc_network.place_cells[j].env_coordinates[0]]
                     y_values = [pc.env_coordinates[1], pc_network.place_cells[j].env_coordinates[1]]
                     self.ax.plot(x_values, y_values, color='k', alpha=0.2)
-        
-        # Title with step count
+
         if step is not None:
             self.ax.set_title(f'Cognitive Map - Step {step}', fontsize=12)
-        
-        # Refresh display
+
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
-    
+
     def close(self):
         """Close the live plot window."""
         plt.ioff()
@@ -407,11 +373,7 @@ class LiveCognitiveMapPlot:
 def cognitive_map_plot(pc_network, cognitive_map, xy_coordinates=None, pc_active_array=None, environment=None,
                        door_positions=None, save_path=None):
 
-    # Axis tick labels: use a serif family at a size that, when the resulting
-    # PNG is embedded into the LaTeX document at the usual subfigure width
-    # (~0.44\linewidth), lands near body-text size. The thesis uses the AIR
-    # Charter font; matplotlib falls back to whatever serif font is locally
-    # available if Charter is not installed for the Python environment.
+    # Use a serif family matching the thesis (Charter) with fallbacks.
     _saved_rc = {
         "font.family": plt.rcParams["font.family"],
         "font.serif": list(plt.rcParams["font.serif"]),
@@ -436,7 +398,6 @@ def cognitive_map_plot(pc_network, cognitive_map, xy_coordinates=None, pc_active
         x, y = zip(*xy_coordinates)
         if pc_active_array is not None:
             idx_pc_active = np.array(pc_active_array)[:, 0] + 5
-            # Threshold clearly differentiates place cells from each each other
             spiking_value = np.where(np.array(pc_active_array)[:, 1] > 0.75, 1, 0)
             idx_pc_active = np.multiply(idx_pc_active, spiking_value)
             plt.scatter(x, y, s=3, c=idx_pc_active, cmap=cmap20)
@@ -458,7 +419,6 @@ def cognitive_map_plot(pc_network, cognitive_map, xy_coordinates=None, pc_active
                 y_values = [pc.env_coordinates[1], pc_network.place_cells[j].env_coordinates[1]]
                 plt.plot(x_values, y_values, color='k', alpha=0.2)
 
-    # Plot obstacles
     add_environment(ax, environment, door_positions)
 
     limits_t = compute_axis_limits(11, environment=environment)
@@ -471,8 +431,7 @@ def cognitive_map_plot(pc_network, cognitive_map, xy_coordinates=None, pc_active
     else:
         plt.show()
 
-    # Restore the matplotlib rcParams we changed so this function doesn't
-    # leak its font configuration into any subsequent plot the caller draws.
+    # Restore rcParams so the font configuration doesn't leak to later plots.
     for _k, _v in _saved_rc.items():
         plt.rcParams[_k] = _v
 
@@ -497,7 +456,6 @@ def plot_linear_lookahead(f_gc, f_t, f_mon, frame, gc_network, xy_coordinates=No
         f_mon.annotate(goal_string, xy=(0, 0.8))
 
     if xy_coordinates is not None:
-        # Trajectory plot
         environment = "linear_sunburst"
         f_t.clear()
         limits_t = compute_axis_limits(11, environment=environment)
@@ -532,7 +490,6 @@ def export_linear_lookahead_video(gc_network, filename, xy_coordinates=None, rew
 
     anim = animation.FuncAnimation(fig, func=animation_frame, frames=frames, interval=1 / fps, blit=False)
 
-    # Finished simulation
     f = filename
     video_writer = animation.FFMpegWriter(fps=fps)
     anim.save(f, writer=video_writer)
@@ -545,13 +502,11 @@ def plot_sub_goal_localization(env, cognitive_map, pc_network, goal_spiking,
     xy_coordinates = env.xy_coordinates
     fig = plt.figure()
 
-    # Trajectory plot
     maze = True if env.env_model == "linear_sunburst" else False
     limits_t = compute_axis_limits(11, environment=env.env_model)
     plt.xlim(limits_t[0], limits_t[1])
     plt.ylim(limits_t[2], limits_t[3])
 
-    # Plot obstacles
     ax = plt.gca()
     add_environment(ax, env.env_model, getattr(env, "door_positions", None))
 
@@ -572,8 +527,6 @@ def plot_sub_goal_localization(env, cognitive_map, pc_network, goal_spiking,
     x, y = zip(*xy_coordinates)
     plt.scatter(x[0], y[0], color="red", s=1)
 
-
-    # Plot robot
     add_robot(ax, env)
 
     plt.quiver(x[-1], y[-1], goal_vector[0], goal_vector[1], color='grey', angles='xy', scale_units='xy', scale=1)
@@ -601,13 +554,11 @@ def plot_sub_goal_localization_pod(env, cognitive_map, pc_network, sub_goal_dict
     xy_coordinates = env.xy_coordinates
     fig = plt.figure()
 
-    # Trajectory plot
     maze = True if env.env_model == "linear_sunburst" else False
     limits_t = compute_axis_limits(11, environment=env.env_model)
     plt.xlim(limits_t[0], limits_t[1])
     plt.ylim(limits_t[2], limits_t[3])
 
-    # Plot obstacles
     ax = plt.gca()
     add_environment(ax, env.env_model, getattr(env, "door_positions", None))
 
@@ -628,8 +579,6 @@ def plot_sub_goal_localization_pod(env, cognitive_map, pc_network, sub_goal_dict
     x, y = zip(*xy_coordinates)
     plt.scatter(x[0], y[0], color="red", s=1)
 
-
-    # Plot robot
     add_robot(ax, env)
 
     plt.quiver(x[-1], y[-1], goal_vector[0], goal_vector[1], angles='xy', scale_units='xy', scale=1,)

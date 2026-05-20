@@ -36,21 +36,15 @@ class ActiveInferenceV2Explorer:
         self.virtual_exploration = bool(virtual_exploration)
         self.virtual_radius = float(virtual_radius)
         self.virtual_min_real_dist = float(virtual_min_real_dist)
-        # navigationPhase reads num_directions to build the raycast
-        # probe-angle array passed into select_action().
+        # navigationPhase reads num_directions to build the raycast probe-angle array.
         self.num_directions = 16
-        # Local visit-count tally over PCs (drives the epistemic term). This
-        # is the controller's own ledger; it grows as the agent commits to
-        # target PCs during evaluation and is independent of the cognitive
-        # map's recency cells.
+        # Local visit-count tally over PCs (drives the epistemic term).
         self._visit_counts = np.zeros(0, dtype=np.float32)
         self._prev_direction = None
         # Virtual PCs generated for the current select_action call. Indices
         # start at `len(pc_network.place_cells)` so they don't collide with
         # real PC indices. Cleared at the top of each select_action.
         self._virtual_pos = {}
-
-    # ---- internals --------------------------------------------------------
 
     def _ensure_visit_counts(self):
         """Grow the visit-count array if the PC network has expanded."""
@@ -63,10 +57,9 @@ class ActiveInferenceV2Explorer:
     def _belief(self, agent_pos):
         """Return (most-likely PC index, normalised belief Q(s)) over PCs.
 
-        When a grid-cell network is available, Q(s) is the softmax of the
-        PC firing values. Otherwise, Q(s) is a Gaussian over Euclidean
-        distance from the agent's current position to each PC's
-        env_coordinates.
+        With a grid-cell network, Q(s) is the softmax of PC firing values;
+        otherwise Q(s) is a Gaussian over Euclidean distance from the
+        agent's position to each PC's env_coordinates.
         """
         n = len(self.pc_network.place_cells)
         if n == 0:
@@ -76,9 +69,7 @@ class ActiveInferenceV2Explorer:
             firing = self.pc_network.compute_firing_values(self.gc_network.gc_modules)
             firing = np.asarray(firing, dtype=np.float32)
             if firing.max() <= 0:
-                # No PC firing — fall back to Euclidean.
                 return self._euclidean_belief(agent_pos)
-            # Normalise to a proper probability distribution.
             Q = firing / firing.sum()
             return int(np.argmax(Q)), Q
         return self._euclidean_belief(agent_pos)
@@ -89,24 +80,18 @@ class ActiveInferenceV2Explorer:
             dtype=np.float32,
         )
         d2 = np.sum((coords - np.asarray(agent_pos, dtype=np.float32)) ** 2, axis=1)
-        # Softmax of -d² with a unit temperature gives a Gaussian-style belief.
         scores = -d2
         scores -= scores.max()
         Q = np.exp(scores)
         Q /= Q.sum()
         return int(np.argmax(Q)), Q
 
-    # ---- real/virtual helpers --------------------------------------------
-
     def _is_virtual(self, pc_idx):
-        """True if pc_idx refers to a virtual PC stand-in created during
-        the current select_action call."""
+        """True if pc_idx refers to a virtual PC stand-in."""
         return pc_idx in self._virtual_pos
 
     def _coord_of(self, pc_idx):
-        """Coordinates of a real or virtual PC, or None when unavailable.
-        Virtual PCs live in ``self._virtual_pos``; real PCs in
-        ``pc_network.place_cells``."""
+        """Coordinates of a real or virtual PC, or None when unavailable."""
         if pc_idx in self._virtual_pos:
             return self._virtual_pos[pc_idx]
         if pc_idx < len(self.pc_network.place_cells):
@@ -115,9 +100,7 @@ class ActiveInferenceV2Explorer:
         return None
 
     def _visit_count_of(self, pc_idx):
-        """N(s) for the epistemic term. Virtual PCs are unvisited by
-        construction (N=0), maximising their information-gain contribution.
-        """
+        """N(s) for the epistemic term. Virtual PCs are N=0 by construction."""
         if pc_idx in self._virtual_pos:
             return 0.0
         if pc_idx < len(self._visit_counts):
@@ -125,14 +108,9 @@ class ActiveInferenceV2Explorer:
         return 0.0
 
     def _reward_of(self, pc_idx):
-        """Extrinsic reward at the target. Virtual PCs are imagined in
-        regions where no real PC has been created, so the reward field is
-        unknown — we set it to zero. The agent's pull toward goal-direction
-        virtuals therefore comes entirely from the epistemic term plus the
-        anisotropic gain, not from the (currently uninformative) reward
-        gradient. This is theoretically defensible: imagined hidden states
-        in unmapped space have an uncertain extrinsic value, which in AIF
-        translates to a neutral preference contribution."""
+        """Extrinsic reward at the target. Virtual PCs have r=0 since their
+        reward field is unknown; their pull comes from epistemic + anisotropic
+        terms only."""
         if pc_idx in self._virtual_pos:
             return 0.0
         if pc_idx < len(self.cognitive_map.reward_cells):
@@ -142,17 +120,7 @@ class ActiveInferenceV2Explorer:
     def _generate_virtual_candidates(self, agent_arr, goal_dir, ray_distances,
                                      real_neighbour_ids):
         """Create virtual PC stand-ins in goal-direction compass slots that
-        are wall-clear and not already covered by a real neighbour.
-
-        Virtual PCs let policy enumeration reach into unmapped space without
-        leaving the AIF framework: each virtual is an imagined hidden state
-        with N=0 and r=0, and policies starting at one are dead-end
-        single-step plans (the topology graph has no edges from virtual
-        indices, so deeper hops naturally terminate). The anisotropic gain
-        and the wall-clear / no-real-cover filters together ensure that
-        virtuals are generated exactly where the agent has reason to look:
-        toward the goal, into open space, into a gap in the cognitive map.
-        """
+        are wall-clear and not already covered by a real neighbour."""
         self._virtual_pos.clear()
         if not self.virtual_exploration or ray_distances is None:
             return []
@@ -160,8 +128,7 @@ class ActiveInferenceV2Explorer:
         if n_rays == 0:
             return []
 
-        # Coordinates of existing real-neighbour PCs (used to suppress
-        # virtual candidates that would duplicate an already-real target).
+        # Coordinates of existing real-neighbour PCs (for duplicate suppression).
         real_coords = []
         for nb in real_neighbour_ids:
             c = self._coord_of(nb)
@@ -171,27 +138,18 @@ class ActiveInferenceV2Explorer:
         base_idx = len(self.pc_network.place_cells)
         angles = np.linspace(0, 2 * np.pi, n_rays, endpoint=False)
         out = []
-        # Minimum forward clearance required at a virtual's compass angle:
-        # leave self.wall_margin between the agent and any wall, plus
-        # enough room to actually reach the virtual position. Without this
-        # we'd place virtuals on the far side of nearby walls.
+        # Minimum forward clearance required at a virtual's compass angle.
         clear_required = self.wall_margin + self.virtual_radius * 0.5
         for i, ang in enumerate(angles):
             if ray_distances[i] < clear_required:
                 continue
             dir_vec = np.array([np.cos(ang), np.sin(ang)], dtype=np.float32)
-            # Goal-half-plane filter, loosened to a ~215° wedge so V2 can
-            # also place virtuals at WSW/ESE angles. With a strict 180°
-            # cone (dot >= 0) the agent gets pulled NW toward the closed
-            # door every time, never sideways into the unmapped west
-            # corridor. The −0.3 threshold still excludes directly-
-            # backward virtuals (no information gain there).
+            # Goal-half-plane filter loosened to ~215 deg wedge; -0.3 still
+            # excludes directly-backward virtuals.
             if goal_dir is not None and float(np.dot(dir_vec, goal_dir)) < -0.3:
                 continue
             candidate = agent_arr + self.virtual_radius * dir_vec
-            # Suppress if a real neighbour is already nearby; we want
-            # virtuals to fill gaps in the topology graph, not duplicate
-            # existing real candidates.
+            # Suppress if a real neighbour is already nearby.
             too_close = False
             for c in real_coords:
                 if float(np.linalg.norm(candidate - c)) < self.virtual_min_real_dist:
@@ -207,16 +165,11 @@ class ActiveInferenceV2Explorer:
     def _neighbours(self, pc_idx, top_k):
         """Top-k neighbouring PC indices of `pc_idx` along topology edges.
 
-        When the node has more than `top_k` neighbours, prefer those with
-        higher reward (closer to the goal in topology). This caps the
-        branching factor in policy enumeration. Virtual PC indices have
-        no topology edges by construction — they return an empty list,
-        which terminates the policy expansion at h=0 (the virtual itself
-        becomes a length-1 dead-end policy that still scores normally).
+        When the node has more than `top_k` neighbours, prefer higher-reward
+        ones. Virtual PC indices have no topology edges and return [].
         """
         if pc_idx is None:
             return []
-        # Virtual PCs have no topology edges; expansions from them stop here.
         if pc_idx >= self.cognitive_map.topology_cells.shape[0]:
             return []
         adjacency = self.cognitive_map.topology_cells[pc_idx]
@@ -232,20 +185,9 @@ class ActiveInferenceV2Explorer:
     def _reachable_neighbours(self, pc_idx, agent_pos, ray_distances, top_k):
         """First-hop neighbours whose direction from the agent is unobstructed.
 
-        Identical to `_neighbours` but additionally drops any candidate whose
-        direction from the agent's current position is blocked by a wall
-        (raycast in that direction < ``self.wall_margin``). Used only for the
-        first hop of policy enumeration: subsequent hops are imagined future
-        positions where ray data is not available, so they keep using
-        `_neighbours` directly.
-
-        Routing wall information into the policy enumeration means the EFE
-        sum is computed only over reachable first-step targets. Without this,
-        the planner repeatedly picks a goal-direction neighbour that the
-        post-decision wall filter then silently rejects, returning the zero
-        vector and pinning the agent against the wall. With this filter the
-        planner sees only reachable neighbours and naturally picks south/east
-        targets when north is blocked.
+        Like `_neighbours` but drops candidates whose direction from the
+        agent's current position is blocked by a wall (raycast in that
+        direction < ``self.wall_margin``). Used only for the first hop.
         """
         cands = self._neighbours(pc_idx, top_k)
         if ray_distances is None or len(ray_distances) == 0 or agent_pos is None:
@@ -256,13 +198,11 @@ class ActiveInferenceV2Explorer:
         for nb in cands:
             coord = self.pc_network.place_cells[nb].env_coordinates
             if coord is None:
-                # Without coordinates we can't check; keep it conservatively.
                 keep.append(nb)
                 continue
             disp = np.asarray(coord, dtype=np.float32) - agent
             norm = float(np.linalg.norm(disp))
             if norm < 1e-3:
-                # Self-loop / coincident PC; not blocked by any wall.
                 keep.append(nb)
                 continue
             ang = float(np.arctan2(disp[1], disp[0])) % (2 * np.pi)
@@ -275,24 +215,11 @@ class ActiveInferenceV2Explorer:
                             goal_dir=None):
         """Build every policy of length up to `horizon` starting at start_pc.
 
-        A policy is a list of target PC indices [s_1, …, s_H]. We also keep
-        partial policies that terminate early at dead ends, so the agent can
-        still consider stepping into a sink.
-
-        When ``agent_pos`` and ``ray_distances`` are supplied, the first hop
-        is restricted to neighbours whose direction from the agent is
-        unobstructed (see `_reachable_neighbours`). Deeper hops keep using
-        the unfiltered topology neighbour set because they correspond to
-        imagined future positions where current ray data does not apply.
-
-        When ``self.virtual_exploration`` is True and ``goal_dir`` is given,
-        the first-hop candidate set is augmented with virtual PC
-        stand-ins generated in wall-clear compass slots within the goal
-        half-plane that no real neighbour covers. Virtual candidates have
-        no topology edges, so policies starting with a virtual terminate
-        as length-1 plans — the EFE machinery scores them like any other
-        policy, with the anisotropic gain doing the work of preferring
-        goal-aligned virtuals.
+        Partial policies that terminate at dead ends are kept. The first hop
+        is filtered by `_reachable_neighbours` and augmented with virtual PC
+        stand-ins when ``self.virtual_exploration`` is True. Deeper hops use
+        the unfiltered topology neighbour set since ray data doesn't apply
+        to imagined future positions.
         """
         if start_pc is None:
             return []
@@ -317,7 +244,6 @@ class ActiveInferenceV2Explorer:
                 else:
                     neighbours = self._neighbours(cur_pc, self.branching)
                 if not neighbours:
-                    # Dead-end node: keep the partial policy if non-empty.
                     if history:
                         all_policies.append(history)
                     continue
@@ -344,11 +270,8 @@ class ActiveInferenceV2Explorer:
     def _anisotropic_gain(self, pc_idx, agent_arr, goal_dir):
         """Multiplicative boost on the epistemic term for goal-aligned PCs.
 
-        Gain = 1 + α · max(0, cos θ), where θ is the angle between the
-        agent→PC displacement and the agent→goal direction. PCs in the goal
-        half-plane get an inflated novelty bonus; PCs behind/orthogonal keep
-        their baseline novelty (gain = 1). Applies uniformly to real and
-        virtual PCs (the coord lookup goes through ``_coord_of``).
+        Gain = 1 + alpha * max(0, cos theta), where theta is the angle
+        between agent->PC displacement and agent->goal direction.
         """
         if goal_dir is None or self.anisotropy_weight <= 0.0:
             return 1.0
@@ -363,17 +286,10 @@ class ActiveInferenceV2Explorer:
         return 1.0 + self.anisotropy_weight * max(0.0, cos_sim)
 
     def _expected_free_energy(self, policy, agent_arr, goal_dir):
-        """G(π) for a single policy = sequence of target PC indices.
+        """G(pi) for a single policy = sequence of target PC indices.
 
-        Lower G is preferred. We negate the bracketed sum so that minimising
-        G corresponds to maximising the discounted sum of (epistemic +
-        extrinsic) value. The epistemic term is scaled by an anisotropic
-        gain that favours PCs lying in the goal direction.
-
-        Real and virtual PCs share the same scoring rule; the per-step
-        N, r, and coordinate lookups go through ``_visit_count_of``,
-        ``_reward_of``, and ``_coord_of`` so that virtual PCs (N=0, r=0)
-        score by epistemic value + anisotropic gain alone.
+        Lower G is preferred. The bracketed sum is negated so that
+        minimising G maximises the discounted (epistemic + extrinsic) value.
         """
         total = 0.0
         for tau, pc_idx in enumerate(policy, start=1):
@@ -383,14 +299,13 @@ class ActiveInferenceV2Explorer:
             gain = self._anisotropic_gain(pc_idx, agent_arr, goal_dir)
             extrinsic = self._reward_of(pc_idx)
             total += gamma * (self.epistemic_weight * gain * epistemic + self.extrinsic_weight * extrinsic)
-        return -total  # AIF: minimise G; here G = -(value)
+        return -total
 
 
     def select_action(self, agent_pos, goal_pos, spatial_grid, ray_distances, current_step):
         """Pick the next direction via AIF policy enumeration + softmax."""
         self._ensure_visit_counts()
-        # Clear virtual PC stand-ins from the previous call. They are
-        # regenerated per call in _enumerate_policies because the
+        # Clear virtual PC stand-ins; regenerated per call since the
         # agent's position, wall geometry, and goal direction all change.
         self._virtual_pos = {}
 
@@ -401,20 +316,13 @@ class ActiveInferenceV2Explorer:
         agent_arr = np.asarray(agent_pos, dtype=np.float32)
         goal_dir = self._goal_heading(agent_pos, goal_pos)
 
-        # Pass current position + ray distances + goal direction into the
-        # enumeration so the first hop is filtered against the wall-margin
-        # raycast AND augmented with virtual goal-direction stand-ins when
-        # the topology graph offers no goal-aligned reachable neighbour.
         policies = self._enumerate_policies(
             start_pc, agent_pos=agent_pos, ray_distances=ray_distances,
             goal_dir=goal_dir,
         )
         if not policies:
-            # All first-hop neighbours are wall-blocked. Fall back to the
-            # unfiltered enumeration so the planner can at least pick an
-            # action — the post-decision filter will still suppress motion,
-            # but the AIF marginal will surface the least-bad direction (e.g.
-            # parallel to the wall) for retreat to act on.
+            # All first-hop neighbours wall-blocked. Fall back to unfiltered
+            # enumeration so the AIF marginal can surface a least-bad direction.
             policies = self._enumerate_policies(start_pc)
         if not policies:
             return np.array([0.0, 0.0])
@@ -424,7 +332,7 @@ class ActiveInferenceV2Explorer:
             dtype=np.float32,
         )
 
-        # Softmax over policies: P(π) ∝ exp(-τ⁻¹ G(π)).
+        # Softmax over policies: P(pi) ~ exp(-tau^-1 G(pi)).
         scores = -self.inverse_temperature * G_values
         scores -= scores.max()
         weights = np.exp(scores)
@@ -436,9 +344,7 @@ class ActiveInferenceV2Explorer:
             a = p[0]
             first_action_weights[a] = first_action_weights.get(a, 0.0) + float(w)
 
-        # Optional head-direction momentum bonus on the marginal, not in G.
-        # Uses ``_coord_of`` so virtual PC stand-ins participate on equal
-        # footing with real PCs.
+        # Optional head-direction momentum bonus on the marginal (not in G).
         if self._prev_direction is not None and self.momentum_weight > 0.0:
             for a, w in list(first_action_weights.items()):
                 target = self._coord_of(a)
@@ -453,8 +359,6 @@ class ActiveInferenceV2Explorer:
 
         best_action, _best_w = max(first_action_weights.items(), key=lambda kv: kv[1])
 
-        # Convert "move toward PC best_action" → unit direction vector.
-        # ``_coord_of`` resolves both real PCs and virtual PC stand-ins.
         target_coord = self._coord_of(best_action)
         if target_coord is None:
             return np.array([0.0, 0.0])
@@ -464,8 +368,7 @@ class ActiveInferenceV2Explorer:
             return np.array([0.0, 0.0])
         vec = direction / norm
 
-        # Respect the live raycast block-out filter: if the chosen direction
-        # is into a wall, return zero and let the caller handle it.
+        # Respect the live raycast block-out filter.
         if ray_distances is not None and len(ray_distances) > 0:
             n_rays = len(ray_distances)
             angles = np.linspace(0, 2 * np.pi, n_rays, endpoint=False)
@@ -474,8 +377,7 @@ class ActiveInferenceV2Explorer:
             if ray_distances[idx] < self.wall_margin:
                 return np.array([0.0, 0.0])
 
-        # Reinforce the visit count of the chosen target so future planning
-        # treats it as less novel.
+        # Reinforce visit count of the chosen target.
         if best_action < len(self._visit_counts):
             self._visit_counts[best_action] += 1.0
 

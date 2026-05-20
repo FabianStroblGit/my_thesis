@@ -47,7 +47,7 @@ rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
 rc('text', usetex=True)
 
 
-# --------------- Plot grid cells ---------------
+# Plot grid cells
 def plot_grid_cell_modules(gc_modules, i, plot_target=False, plot_matches=False):
 
     fig = plt.figure(figsize=(12, 4))
@@ -62,7 +62,6 @@ def plot_grid_cell_modules(gc_modules, i, plot_target=False, plot_matches=False)
         if m != 0:
             ax.axes.get_yaxis().set_visible(False)
 
-        # title_string = "g_m = " + str("{:.2f}".format(gc.gm))
         plt.title(r"$g_m =$" + " " + "{:.2f}".format(gc.gm))
 
         plt.imshow(s, origin="lower", cmap=tum_blue_map)
@@ -89,7 +88,6 @@ def plot_grid_cell_modules(gc_modules, i, plot_target=False, plot_matches=False)
                 plt.quiver(origin_x, origin_y, vectors_x, vectors_y, color=TUM_colors['TUMDarkGray'],
                            width=0.01, scale=1, scale_units='xy')
 
-    # folder = "spikes_matched/" if plot_matches else "spikes_unmatched/"
     folder = ""
 
     directory = "experiments/grid_cell_initialization/" + folder
@@ -135,7 +133,7 @@ def plot_3D_sheets(gc_modules, i):
     plt.close()
 
 
-# --------------- Plot linear lookahead functionality ---------------
+# Plot linear lookahead functionality
 def plot_vectors(s, t, axis=0, i=0, found=False):
 
     fig = plt.figure()
@@ -145,7 +143,6 @@ def plot_vectors(s, t, axis=0, i=0, found=False):
 
     plt.imshow(s, origin="lower", cmap=tum_blue_map)
     plt.imshow(t, origin="lower", cmap=cmap_binary, alpha=0.5)
-    # plt.show()
 
     directory = "plots/linear_lookahead/found/"
     if not os.path.exists(directory):
@@ -171,7 +168,6 @@ def plot_linear_lookahead_function(proj_gc_connections, proj_s_vectors, filtered
         plt.bar(x, proj_s_vectors[idx], 1.1, color=TUM_colors['TUMBlue'])
         fig.add_subplot(4, 1, 4)
         plt.bar(x, filtered[idx], 1.1,  color=TUM_colors['TUMSecondaryBlue2'])
-        # plt.show()
 
         directory = "plots/linear_lookahead/found/"
         if not os.path.exists(directory):
@@ -184,7 +180,7 @@ def plot_linear_lookahead_function(proj_gc_connections, proj_s_vectors, filtered
         plt.close()
 
 
-# --------------- Plot grid cell decoder all trials ---------------
+# Plot grid cell decoder all trials
 def plot_vector_navigation_error(error):
 
     range_max = 2.5
@@ -255,14 +251,12 @@ def plot_positions(positions, vectors):
     plt.scatter(x1, y1, color=TUM_colors['TUMBlue'], alpha=0.4)
     plt.scatter(x0, y0, color=TUM_colors['TUMDarkGray'], s=100)
     plt.axis('square')
-    # plt.xlim(-1, 1)
-    # plt.ylim(-1, 1)
     plt.savefig("experiments/" + "vectors", format="pdf")
     plt.show()
     plt.close()
 
 
-# --------------- Plot grid cell decoder single trial ---------------
+# Plot grid cell decoder single trial
 def plot_error_single_run(positions, vectors):
 
     errors = np.linalg.norm(positions[3501:] + vectors[3501:], axis=1)
@@ -335,8 +329,7 @@ def add_cognitive_map(ax, pc_network, cognitive_map):
         circle_border = plt.Circle((pc.env_coordinates[0], pc.env_coordinates[1]), 0.5,
                                 ec=TUM_colors['TUMGray'], fill=False, linewidth=0.3)
         ax.add_artist(circle_border)
-        
-        # Display reward value as text
+
         reward = cognitive_map.reward_cells[i]
         if reward > 0:
             ax.text(pc.env_coordinates[0], pc.env_coordinates[1], f'{reward:.2f}',
@@ -378,7 +371,7 @@ def add_environment(ax, door_positions=None):
     ax.add_artist(plot_box)
 
 
-# --------------- Plot sub goal localization map ---------------
+# Plot sub goal localization map
 def plot_sub_goal_localization(env, cognitive_map, pc_network, goal_vector, filename, chosen_idx=0, goal_spiking=None):
 
     plt.figure()
@@ -427,21 +420,11 @@ def plot_sub_goal_localization(env, cognitive_map, pc_network, goal_vector, file
     plt.xlim(-0.5, 11.5)
     plt.ylim(-0.5, 11.5)
     plt.savefig("experiments/" + "goal_lookahead" + filename, format="pdf")
-    # plt.show() removed: this function fires every directed lookahead during
-    # navigation. Showing a window each time blocks the run and forces the user
-    # to dismiss dozens of dialogs by hand. The PDF is still saved.
+    # plt.show() omitted: this function fires every directed lookahead during navigation.
     plt.close()
 
 
 def plot_trajectory(xy_coordinates, door):
-
-    # print("----- Trajectory " + door)
-    #
-    # distance = 0
-    # for idx in range(len(xy_coordinates) - 1):
-    #     vec = xy_coordinates[idx + 1] - xy_coordinates[idx]
-    #     distance = distance + np.linalg.norm(vec)
-    # print("Overall distance: ", distance)
 
     plt.figure()
 
@@ -450,31 +433,6 @@ def plot_trajectory(xy_coordinates, door):
 
     initial = plt.Circle((5.5, 0.5), 0.12, color=TUM_colors['TUMGray'])
     ax.add_artist(initial)
-
-    # xy_coordinates = xy_coordinates[:5350]
-    # x, y = zip(*xy_coordinates)
-    # plt.scatter(x, y, s=1.5, c=TUM_colors['TUMBlue'])
-    #
-    # distance = 0
-    # for idx in range(len(xy_coordinates) - 1):
-    #     vec = xy_coordinates[idx + 1] - xy_coordinates[idx]
-    #     distance = distance + np.linalg.norm(vec)
-    # print("Until <0.5: ", distance)
-    #
-    # # points = np.array([[5.5, 0.5], [9.5, 5], [9.5, 7.5], [2.5, 7.5], [2.5, 9], [1.5, 10]])  # 5 open
-    # # points = np.array([[5.5, 0.5], [3.5, 5], [3.5, 7.5], [2.5, 7.5], [2.5, 9], [1.5, 10]])  # all open
-    # # points = np.array([[5.5, 0.5], [5.5, 7.5], [2.5, 7.5], [2.5, 9], [1.5, 10]])  # 3 open
-    # points = np.array([[5.5, 0.5], [1.5, 5], [1.5, 7.5], [2.5, 7.5], [2.5, 9], [1.5, 10]])  # 1 open
-    #
-    # distance = 0
-    # for idx in range(len(points) - 1):
-    #     vec = points[idx + 1] - points[idx]
-    #     distance = distance + np.linalg.norm(vec)
-    #     if idx == 0:
-    #         points[idx] = points[idx] + (vec/np.linalg.norm(vec)) * 0.25
-    #     x, y = zip(*[points[idx], points[idx + 1]])
-    #     plt.plot(x, y, ':', color=TUM_colors['TUMLightGray'])
-    # print("Optimal distance: ", distance)
 
     current_position = xy_coordinates[0]
     agent = plt.Circle((current_position[0], current_position[1]), 0.25, color=TUM_colors['TUMDarkGray'])

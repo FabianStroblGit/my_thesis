@@ -3,12 +3,8 @@ import numpy as np
 from plotting.plotResults import export_linear_lookahead_video
 from plotting.plotThesis import plot_sub_goal_localization
 
-# In-loop diagnostic plots (one PDF per lookahead call) are by far the
-# heaviest non-physics cost in the simulation: each call constructs a fresh
-# matplotlib figure, draws the cognitive map plus the agent's quiver, and
-# writes a PDF to disk. Skip them entirely when BENCHMARK_NO_PLOTS=1 is set
-# in the subprocess environment. The benchmark scripts opt into this; ad-hoc
-# `python main.py` runs keep the plots for debugging.
+# Skip in-loop diagnostic plots when BENCHMARK_NO_PLOTS=1 is set in the
+# subprocess environment (they are expensive matplotlib PDFs per lookahead call).
 _SKIP_LOOKAHEAD_PLOTS = os.environ.get("BENCHMARK_NO_PLOTS", "0") == "1"
 
 
@@ -23,12 +19,8 @@ def perform_lookahead_directed(gc_network, pc_network, cognitive_map, env):
 
     goal_spiking = {}  # "angle": {"reward_value", "idx_place_cell", "distance", "step"}
 
-    # Capped at 2.0 m so the directed lookahead only plans over the local
-    # neighbourhood. Previously this was 0.5 * arena_size (~7.5 m), which let
-    # the virtual rollout reach the goal PC from anywhere in the maze and
-    # caused the lookahead to dominate route selection over physical
-    # raycasting in tight quarters. The shorter horizon also reduces the
-    # per-call cost of the lookahead (fewer virtual GC updates).
+    # Lookahead horizon: restricted so the directed rollout plans only over the
+    # local neighbourhood and does not dominate route selection in tight mazes.
     max_distance = 3.0
     max_nr_steps = int(max_distance / (speed * dt))
 
@@ -74,21 +66,16 @@ def perform_lookahead_directed(gc_network, pc_network, cognitive_map, env):
     angle_keys = list(goal_spiking.keys())
     idx_angle = int(np.argmax(rewards))  # determine most promising direction
 
-    # --- Hysteresis ---
-    # Near the goal PC, several rollout directions all reach the goal PC at some
-    # virtual step and return near-identical rewards. argmax then flips between
-    # near-ties on every call, producing 180° goal-vector swings → the motor
-    # controller spends most of its time rotating instead of translating.
-    # If the previously chosen direction is still within HYSTERESIS_TOL of the
-    # current best, keep it. Only switch when some other direction is clearly
-    # better. Has no effect far from the goal where the reward gradient is sharp.
+    # Hysteresis: near the goal PC, several rollout directions return
+    # near-identical rewards. Keep the previously chosen direction unless
+    # another is clearly better, to avoid argmax flipping between near-ties.
     HYSTERESIS_TOL = 0.05
     prev_idx = getattr(env, "_last_lookahead_idx_angle", None)
     if prev_idx is not None and 0 <= prev_idx < len(rewards) and prev_idx != idx_angle:
         best_reward = rewards[idx_angle]
         prev_reward = rewards[prev_idx]
-        # Keep the previous direction if its reward is within tolerance of the
-        # new best AND it's still positive (i.e. not blocked / -1).
+        # Keep the previous direction if within tolerance of the new best
+        # and still positive (i.e. not blocked / -1).
         if prev_reward > 0 and best_reward > 0 and \
                 (best_reward - prev_reward) <= HYSTERESIS_TOL * max(best_reward, 1e-3):
             idx_angle = prev_idx
@@ -100,8 +87,6 @@ def perform_lookahead_directed(gc_network, pc_network, cognitive_map, env):
     # Cache best reward for navigationPhase to check
     env._last_lookahead_best_reward = max(reward, 0.0)
 
-    # Stay in topology-based directed lookahead even when reward is high.
-    # perform_look_ahead_2x can't see walls and produces bad vectors in mazes.
     if reward >= 0:
         distance = goal_spiking[angle]["distance"]
         distance = np.maximum(distance, 0.5) if reward < 0.8 else distance

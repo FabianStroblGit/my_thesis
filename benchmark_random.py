@@ -1,22 +1,4 @@
-"""
-benchmark_random.py — Uniform-random-walk baseline for the no-path branch.
-
-Same orchestrator pattern as benchmark_ai.py / benchmark_a2c.py: snapshot the
-exploration state once, then run N navigation episodes per door layout,
-each restoring the init snapshot. Inside the no-path branch the agent
-samples directions uniformly from the unblocked-ray set instead of using
-AIF planning or A2C learning. Useful as a control to quantify how much
-intelligence the smart controllers actually buy you.
-
-The topology lookahead still drives the agent in known regions where
-has_path is True — so the comparison isolates the *exploration* policy,
-not the overall navigation stack.
-
-Usage:
-    python benchmark_random.py                                  # 5 runs, door=1, both thigmo configs
-    python benchmark_random.py --runs 3 --doors 1,2,3,4,5       # full door sweep
-    python benchmark_random.py --runs 1 --thigmo on --live      # quick demo with cog-map window
-"""
+"""benchmark_random.py — Uniform-random-walk baseline for the no-path branch."""
 
 import argparse
 import json
@@ -74,16 +56,11 @@ def run_with_config(label: str, cfg_override: dict, plot_path: str = None,
 
     deep_merge(cfg, cfg_override)
 
-    # Per-script suffix so parallel benchmark invocations don't race over
-    # the same backup file. PID is included for safety against accidental
-    # double-invocation of the same script.
+    # PID-suffixed paths so parallel benchmark invocations don't collide.
     tmp_cfg = CONFIG_PATH.with_suffix(f".benchmark_random_{os.getpid()}_tmp.json")
     backup = CONFIG_PATH.with_suffix(f".benchmark_random_{os.getpid()}_backup.json")
 
     metrics = {}
-    # Copy (not rename) the original so config.json stays on disk for the
-    # whole subprocess lifetime — if this script is hard-killed there's no
-    # window in which the user's config could disappear.
     shutil.copy2(CONFIG_PATH, backup)
     try:
         with tmp_cfg.open("w", encoding="utf-8") as f:
@@ -97,8 +74,6 @@ def run_with_config(label: str, cfg_override: dict, plot_path: str = None,
         if plot_path:
             env["BENCHMARK_PLOT_PATH"] = str(plot_path)
         env["HEADLESS_MPL"] = "0" if live else "1"
-        # Skip the per-lookahead diagnostic PDF saves — these are heavy I/O
-        # and only useful when interactively debugging the lookahead.
         env["BENCHMARK_NO_PLOTS"] = "1"
 
         proc = subprocess.Popen(
@@ -126,9 +101,6 @@ def run_with_config(label: str, cfg_override: dict, plot_path: str = None,
         proc.wait()
 
     finally:
-        # Defensive restore — if the backup is missing (e.g. a parallel
-        # benchmark deleted it under an older shared filename), log and skip
-        # rather than crash.
         if backup.exists():
             shutil.copy2(backup, CONFIG_PATH)
             backup.unlink(missing_ok=True)
@@ -216,12 +188,10 @@ def main():
 
     plot_dir_run.mkdir(parents=True, exist_ok=True)
 
-    # ── Step 1: snapshot original data ──
     original_snapshot = ROOT / ".benchmark_random_original"
     snapshot_data(original_snapshot)
     print("[benchmark] Original data snapshot saved")
 
-    # ── Step 2: run init (exploration) phase ──
     print(f"\n{'='*60}")
     print(f"  INIT  [exploration phase — from_data=false, plane_doors]")
     print(f"{'='*60}")
@@ -236,9 +206,8 @@ def main():
             },
             "grid_cell_network": {"from_data": False},
             "environment": {"doors_option": "plane_doors"},
-            # Match the A2C / AI benchmarks: skip the leftward sweep of
-            # the lower corridor so the three leftmost PCs ([1.5,4.5],
-            # [2.5,4.5], [3.5,4.5]) are never created during exploration.
+            # Skip leftward sweep so the three leftmost lower-corridor PCs
+            # are not created during exploration.
             "exploration": {"skip_left_lower_init": True},
         },
         plot_path=str(init_plot),
@@ -247,12 +216,10 @@ def main():
     )
     print("[benchmark] Init (exploration) phase complete")
 
-    # ── Step 3: snapshot init result ──
     init_snapshot = ROOT / ".benchmark_random_init"
     snapshot_data(init_snapshot)
     print("[benchmark] Init data snapshot saved")
 
-    # ── Step 4: run each config ──
     all_results = {}
 
     for door_idx in door_list:
@@ -301,11 +268,9 @@ def main():
 
             all_results[config_label] = runs
 
-    # ── Step 5: restore original data ──
     restore_data(original_snapshot)
     print("\n[benchmark] Original data restored")
 
-    # ── Summary ──
     print(f"\n{'='*70}")
     print("  RANDOM-WALK BENCHMARK SUMMARY")
     print(f"{'='*70}")
@@ -331,9 +296,6 @@ def main():
     print(f"\n  Plots saved to {plot_dir_run}/")
     print(f"{'='*70}\n")
 
-    # Save the aggregate summary (mean +/- std across runs) instead of
-    # the raw per-run metrics. The thesis only ever consumes the
-    # aggregate; the per-run JSON ballooned with every benchmark.
     from benchmark_summary import build_aggregate
     out_path = ROOT / f"benchmark_random_results_{run_id}.json"
     with out_path.open("w", encoding="utf-8") as f:

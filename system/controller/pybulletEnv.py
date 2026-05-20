@@ -131,25 +131,23 @@ class PybulletEnvironment:
         """Display reward values at each place cell location in the PyBullet visualization."""
         if not self.visualize:
             return
-        
-        # Remove old text labels
+
         for text_id in self.reward_text_ids:
             p.removeUserDebugItem(text_id)
         self.reward_text_ids = []
-        
-        # Add new text labels for each place cell
+
         for i, pc in enumerate(pc_network.place_cells):
             if pc.env_coordinates is None:
                 continue
-            
+
             reward_value = cognitive_map.reward_cells[i]
-            if reward_value > 0:  # Only show non-zero rewards
+            if reward_value > 0:
                 x, y = pc.env_coordinates
                 # Color from red (low reward) to green (high reward)
-                color = [1 - reward_value, reward_value, 0]  # RGB
+                color = [1 - reward_value, reward_value, 0]
                 text_id = p.addUserDebugText(
                     text=f"{reward_value:.2f}",
-                    textPosition=[x, y, 0.3],  # Slightly above ground
+                    textPosition=[x, y, 0.3],
                     textColorRGB=color,
                     textSize=1.0
                 )
@@ -268,52 +266,36 @@ class PybulletEnvironment:
         return self.latest_camera_frame
 
     def detect_door_opening(self, wall_threshold=2.0, min_opening_width=15):
-        """Detect door openings using depth camera image.
-        
-        Analyzes the depth image to find gaps/openings in walls by looking for
-        regions where depth suddenly increases (indicating a passage through).
-        
-        Args:
-            wall_threshold: float, depth below this is considered a wall (meters)
-            min_opening_width: int, minimum pixel width of opening to consider
-            
-        Returns:
-            tuple: (door_angle, door_distance, confidence) or (None, None, 0) if no door found
-                - door_angle: angle in radians relative to robot heading (positive = left)
-                - door_distance: estimated distance to door opening
-                - confidence: 0-1 score of detection confidence
+        """Detect door openings using the depth camera image.
+
+        Returns: (door_angle, door_distance, confidence) or (None, None, 0).
+        door_angle is in radians relative to robot heading (positive = left).
         """
         if not self.camera_enabled or self.latest_camera_frame is None:
             return None, None, 0
-        
+
         depth = self.latest_camera_frame["depth"]
         if depth is None:
             return None, None, 0
-        
+
         height, width = depth.shape
-        
-        # Convert PyBullet depth buffer to actual distance
-        # PyBullet returns linearized depth: depth_buffer = far * near / (far - (far - near) * depth)
-        # We need to convert back to actual distance
+
+        # PyBullet returns linearized depth; convert back to actual distance.
         far = self.camera_far
         near = self.camera_near
-        # Avoid division by zero
         depth_linear = np.clip(depth, 0.001, 0.999)
         actual_depth = far * near / (far - (far - near) * depth_linear)
-        
-        # Sample multiple horizontal strips for robustness
+
         strip_rows = [height // 3, height // 2, 2 * height // 3]
-        
+
         best_opening = None
         best_score = 0
-        
+
         for row in strip_rows:
             strip = actual_depth[row, :]
-            
-            # Find regions where depth exceeds wall threshold (openings)
+
             is_opening = strip > wall_threshold
-            
-            # Find contiguous opening regions
+
             openings = []
             start = None
             for i, is_open in enumerate(is_opening):
@@ -324,58 +306,47 @@ class PybulletEnvironment:
                         avg_depth = np.mean(strip[start:i])
                         openings.append((start, i, avg_depth))
                     start = None
-            # Don't forget last region
             if start is not None and width - start >= min_opening_width:
                 avg_depth = np.mean(strip[start:width])
                 openings.append((start, width, avg_depth))
-            
-            # Score each opening: prefer centered, wide, and deep openings
+
+            # Score each opening: prefer centered, wide, and deep openings.
             for start_col, end_col, avg_depth in openings:
                 center_col = (start_col + end_col) / 2
                 opening_width = end_col - start_col
-                
-                # Center score: prefer openings near center of view
+
                 center_offset = abs(center_col - width / 2) / (width / 2)
                 center_score = 1 - center_offset
-                
-                # Width score: wider is better
+
                 width_score = min(opening_width / 50, 1.0)
-                
-                # Depth score: deeper (farther away can still see through) is better
+
                 depth_score = min(avg_depth / 5.0, 1.0)
-                
-                # Combined score
+
                 score = center_score * 0.3 + width_score * 0.4 + depth_score * 0.3
-                
+
                 if score > best_score:
                     best_score = score
                     best_opening = (center_col, opening_width, avg_depth)
-        
+
         if best_opening is None:
             step = len(self.xy_coordinates) - 1 if self.xy_coordinates else 0
             if step % 500 == 0:
-                # Log depth stats for debugging when no door found
                 strip_row = height // 2
                 strip = actual_depth[strip_row, :]
                 print(f"[DOOR-DEBUG] Step {step}: No door found. Depth stats: "
                       f"min={np.min(strip):.2f}, max={np.max(strip):.2f}, "
                       f"median={np.median(strip):.2f}, threshold={wall_threshold:.1f}")
             return None, None, 0
-        
+
         center_col, opening_width, avg_depth = best_opening
-        
-        # Convert pixel column to angle relative to robot heading
-        # FOV is camera_fov degrees, centered at width/2
+
+        # Convert pixel column to angle relative to robot heading.
         fov_rad = np.radians(self.camera_fov)
-        # Pixel offset from center, normalized to -1 to 1
         pixel_offset = (center_col - width / 2) / (width / 2)
-        # Convert to angle (negative because image is mirrored in some setups)
         door_angle = -pixel_offset * (fov_rad / 2)
-        
-        # Confidence based on score
+
         confidence = best_score
-        
-        # Debug logging
+
         step = len(self.xy_coordinates) - 1 if self.xy_coordinates else 0
         if step % 200 == 0:
             pos = self.xy_coordinates[-1] if self.xy_coordinates else [0, 0]
@@ -383,7 +354,7 @@ class PybulletEnvironment:
             print(f"[DOOR-DEBUG] Step {step}: pos=({pos[0]:.1f},{pos[1]:.1f}), heading={heading_deg:.0f}°, "
                   f"door at col={center_col:.0f}/{width} (angle={np.degrees(door_angle):.1f}°), "
                   f"width={opening_width}px, depth={avg_depth:.1f}m, conf={confidence:.2f}")
-        
+
         return door_angle, avg_depth, confidence
 
     def compute_movement(self, gc_network, pc_network, cognitive_map, exploration_phase=True):
@@ -410,11 +381,10 @@ class PybulletEnvironment:
     def save_position_and_speed(self):
         [position, angle] = p.getBasePositionAndOrientation(self.carID)
         angle = p.getEulerFromQuaternion(angle)
-        
-        # NaN protection: if position becomes invalid, try to recover using last known position
+
+        # NaN protection: recover using last known position when possible.
         if np.any(np.isnan(position)) or np.any(np.isnan(angle)):
             if len(self.xy_coordinates) > 0:
-                # Use last known good position
                 print(f"[WARNING] Robot position/angle is NaN, using last known position")
                 self.xy_coordinates.append(self.xy_coordinates[-1])
                 self.orientation_angle.append(self.orientation_angle[-1])
@@ -422,14 +392,13 @@ class PybulletEnvironment:
                 self.speeds.append(0.0)
                 return
             else:
-                # No previous position, use origin
                 print(f"[WARNING] Robot position is NaN and no previous position available")
                 self.xy_coordinates.append(np.array([0.0, 0.0]))
                 self.orientation_angle.append(0.0)
                 self.xy_speeds.append([0.0, 0.0])
                 self.speeds.append(0.0)
                 return
-        
+
         self.xy_coordinates.append(np.array([position[0], position[1]]))
         self.orientation_angle.append(angle[2])
 
@@ -440,25 +409,21 @@ class PybulletEnvironment:
     def compute_gains(self):
         """Calculates motor gains based on heading and goal vector direction"""
         current_angle = self.orientation_angle[-1]
-        
-        # NaN protection: if angle or goal_vector is NaN, return zero gains
+
         if np.isnan(current_angle) or np.any(np.isnan(self.goal_vector)):
             return [0.0, 0.0]
-        
+
         current_heading = [np.cos(current_angle), np.sin(current_angle)]
         diff_angle = compute_angle(current_heading, self.goal_vector) / np.pi
-        
-        # NaN protection for diff_angle (can happen if goal_vector is zero)
+
         if np.isnan(diff_angle):
             diff_angle = 0.0
 
         gain = min(np.linalg.norm(self.goal_vector) * 5, 1)
 
-        # If close to the goal do not move
         if gain < 0.5:
             gain = 0
 
-        # If large difference in heading, do an actual turn
         if abs(diff_angle) > 0.05 and gain > 0:
             max_speed = self.max_speed / 2
             direction = np.sign(diff_angle)
@@ -469,13 +434,11 @@ class PybulletEnvironment:
                 v_left = max_speed * gain
                 v_right = max_speed * gain * -1
         else:
-            # Otherwise only adjust course slightly
             self.turning = False
             max_speed = self.max_speed
             v_left = max_speed * (1 - diff_angle * 2) * gain
             v_right = max_speed * (1 + diff_angle * 2) * gain
 
-        # Diagnostic: log motor state every 500 steps when in upper area
         step = len(self.xy_coordinates)
         if step % 500 == 0 and len(self.xy_coordinates) > 0 and self.xy_coordinates[-1][1] > 8.0:
             pos = self.xy_coordinates[-1]
@@ -489,9 +452,8 @@ class PybulletEnvironment:
     def _line_of_sight_clear(self, from_pos, to_pos, z=0.1):
         """True if a straight line from from_pos to to_pos hits no wall.
 
-        Uses PyBullet's rayTest to detect any rigid body along the segment.
-        We exclude the agent's own body (``self.carID``) from the hit set so
-        the test only reports environment obstacles (walls, blocks, etc.).
+        Uses PyBullet's rayTest and excludes the agent's own body (carID)
+        so only environment obstacles are reported.
         """
         start = [float(from_pos[0]), float(from_pos[1]), z]
         end = [float(to_pos[0]),   float(to_pos[1]),   z]
@@ -506,18 +468,11 @@ class PybulletEnvironment:
 
     def retreat_to_safe_position(self, max_lookback=200):
         """Retreat to the last position where the agent was moving.
-        Biologically: a rat backing out of a dead-end passage.
 
-        Bounded by ``max_lookback`` trajectory entries so that retreat can
-        only undo local oscillation — not catastrophically unwind progress
-        like a previously-completed wall crossing. Each candidate retreat
-        position is additionally line-of-sight checked against the current
-        position via raycasting; candidates separated from the agent by a
-        wall are rejected. This prevents the resetBasePositionAndOrientation
-        teleport from phasing the agent through closed doors when the
-        trajectory history contains a coordinate on the far side of a wall
-        (which can happen if PyBullet's contact resolver briefly lets the
-        agent's centre overshoot a thin collider during wall oscillation).
+        Bounded by ``max_lookback`` trajectory entries so retreat can only
+        undo local oscillation. Each candidate is line-of-sight checked
+        against the current position; candidates separated by a wall are
+        rejected so the teleport can't phase the agent through geometry.
         """
         current_pos = np.array(self.xy_coordinates[-1])
         retreat_pos = None
@@ -528,16 +483,13 @@ class PybulletEnvironment:
             if np.linalg.norm(candidate - current_pos) <= 0.5:
                 continue
             if not self._line_of_sight_clear(current_pos, candidate):
-                # A wall lies between the agent and this candidate; teleport
-                # would phase through it. Keep searching further back.
                 continue
             retreat_pos = candidate
             break
 
         if retreat_pos is None:
             # Fall back to a short step opposite the current heading, but
-            # still verify line-of-sight; if that's also blocked, abort the
-            # retreat rather than teleport through geometry.
+            # still verify line-of-sight; abort if also blocked.
             heading = self.orientation_angle[-1] if self.orientation_angle else 0.0
             fallback = current_pos - np.array([np.cos(heading), np.sin(heading)]) * 0.5
             if self._line_of_sight_clear(current_pos, fallback):
@@ -565,46 +517,40 @@ class PybulletEnvironment:
 
     def avoid_obstacles(self, gc_network, pc_network, cognitive_map, exploration_phase):
         """Main controller function, to check for obstacles and adjust course if needed."""
-        # During exploration (initial), skip expensive navigation computations
-        # Just do basic obstacle avoidance
+        # During the initial exploration phase, skip expensive navigation
+        # computations and do basic obstacle avoidance only.
         if exploration_phase:
             ray_reference = p.getLinkState(self.carID, 0)[1]
             current_heading = p.getEulerFromQuaternion(ray_reference)[2]
             goal_vector_angle = np.arctan2(self.goal_vector[1], self.goal_vector[0])
-            
+
             scan_angles = np.linspace(0, 2 * np.pi, num=8, endpoint=False)
             scan_dist = self.ray_detection(scan_angles)
             minimum_dist = np.min(scan_dist)
-            
+
             if minimum_dist < 0.3:
-                # Back up from obstacle
                 idx = np.argmin(scan_dist)
                 angle = scan_angles[idx] + np.pi
                 self.goal_vector = np.array([np.cos(angle), np.sin(angle)]) * 0.5
                 self.goal_vector_original = self.goal_vector
-            
+
             return self.compute_gains()
-        
-        # Normal navigation mode - full obstacle avoidance
+
+        # Normal navigation mode - full obstacle avoidance.
         ray_reference = p.getLinkState(self.carID, 0)[1]
-        current_heading = p.getEulerFromQuaternion(ray_reference)[2]  # in radians
+        current_heading = p.getEulerFromQuaternion(ray_reference)[2]
         goal_vector_angle = np.arctan2(self.goal_vector[1], self.goal_vector[0])
         angles = np.linspace(0, 2 * np.pi, num=self.num_ray_dir, endpoint=False)
 
-        # direction where we want to check for obstacles
         angles = np.append(angles, [goal_vector_angle, current_heading])
 
-        ray_dist = self.ray_detection(angles)  # determine ray values
-        self._last_min_ray_dist = float(np.min(ray_dist[:self.num_ray_dir]))  # cache for metrics
-        changed = self.update_directions(ray_dist)  # check if an direction became unblocked
-
-        # Stay in topology-based mode even when all directions are free.
-        # Switching to perform_look_ahead_2x (vector-based) doesn't see walls
-        # and produces bad vectors in walled environments.
+        ray_dist = self.ray_detection(angles)
+        self._last_min_ray_dist = float(np.min(ray_dist[:self.num_ray_dir]))
+        changed = self.update_directions(ray_dist)
 
         minimum_dist = np.min(ray_dist)
         if minimum_dist < 0.3:
-            # Initiate back up maneuver
+            # Initiate back-up maneuver.
             idx = np.argmin(ray_dist)
             angle = angles[idx] + np.pi
             self.goal_vector = np.array([np.cos(angle), np.sin(angle)]) * 0.5
@@ -613,9 +559,8 @@ class PybulletEnvironment:
 
         if not exploration_phase:
             if self.topology_based or ray_dist[-1] < 0.6 or ray_dist[-2] < 0.6:
-                # Approaching an obstacle in heading or goal vector direction, or topology based
+                # Approaching an obstacle in heading or goal vector direction, or topology based.
                 if not self.topology_based or changed:
-                    # Switching to topology-based, or already topology-based but new direction became available
                     self.topology_based = True
                     pick_intermediate_goal_vector(gc_network, pc_network, cognitive_map, self)
 
@@ -626,13 +571,11 @@ class PybulletEnvironment:
         changed = False
         directions = np.ones_like(self.directions)
         for idx in range(self.num_ray_dir):
-            left = idx - 1 if idx - 1 >= 0 else self.num_ray_dir - 1  # determine left direction in circle
-            right = idx + 1 if idx + 1 <= self.num_ray_dir - 1 else 0  # determine right direction in circle
+            left = idx - 1 if idx - 1 >= 0 else self.num_ray_dir - 1
+            right = idx + 1 if idx + 1 <= self.num_ray_dir - 1 else 0
             if ray_dist[idx] < 1.3 or ray_dist[left] < 0.9 or ray_dist[right] < 0.9:
-                # If in direction an obstacle is nearby or in one of the neighbouring, then it is blocked
                 directions[idx] = False
             if idx % self.num_travel_dir == 0 and directions[idx] and not self.directions[idx]:
-                # One of the traveling directions became unblocked
                 changed = True
         self.directions = directions
         return changed
@@ -642,7 +585,7 @@ class PybulletEnvironment:
 
         p.removeAllUserDebugItems()
 
-        ray_len = 2  # max_ray length to check for
+        ray_len = 2  # max ray length
 
         ray_from = []
         ray_to = []
@@ -671,11 +614,4 @@ class PybulletEnvironment:
 
             ray_dist[idx] = dist
 
-            # if dist < 1:
-            #     p.addUserDebugLine(ray_from[idx], ray_to[idx], (1, 1, 1))
-
         return ray_dist
-
-
-
-

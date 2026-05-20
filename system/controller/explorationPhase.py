@@ -7,15 +7,12 @@ def compute_exploration_goal_vector(env, i):
     env.goal_vector = env.goal - position
 
     distance_to_goal = np.linalg.norm(env.goal_vector)
-    # Check if agent has reached the (sub) goal
     if distance_to_goal < 0.2 or i == 0:
         if env.env_model == "linear_sunburst":
-            navigate_to_location(env)  # Pick next goal to travel tp
-            # pick_random_location(env, rectangular=True)
+            navigate_to_location(env)
         elif env.env_model == "single_line_traversal":
             if i == 0:
-                pick_random_straight_line(env)  # Pick random location at the beginning
-                # print("Heading to ", env.goal)
+                pick_random_straight_line(env)
         else:
             pick_random_location(env)
 
@@ -41,15 +38,10 @@ def navigate_to_location(env):
     """Pre-coded exploration path for linear sunburst maze.
 
     When ``env.skip_left_lower_init`` is True, the leftward sweep of the
-    lower corridor ([5.5,4.5] → [1.5,4.5]) is omitted so that no place cells
-    are created at the three leftmost positions of the lower corridor.
-    Used by the A2C benchmark INIT to control which PCs are present in the
-    map before navigation starts.
+    lower corridor is omitted so no place cells are created at the three
+    leftmost positions of the lower corridor.
     """
     if getattr(env, 'skip_left_lower_init', False):
-        # Skip the leftward sweep — go straight east from the start so the
-        # three leftmost lower-corridor PCs ([1.5,4.5], [2.5,4.5], [3.5,4.5])
-        # are never created.
         goals = np.array([
                  [5.5, 4.5],
                  [9.5, 4.5],

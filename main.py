@@ -31,45 +31,40 @@ from system.controller.randomExplorer import RandomExplorer
 
 
 
-# --- Logging Setup ---
 class TeeStream:
-    """A stream that writes to both a file and original stream."""
+    """A stream that writes to both a file and the original stream."""
     def __init__(self, file_stream, original_stream):
         self.file_stream = file_stream
         self.original_stream = original_stream
-    
+
     def write(self, message):
         self.original_stream.write(message)
         self.file_stream.write(message)
-        self.file_stream.flush()  # Ensure immediate write
-    
+        self.file_stream.flush()
+
     def flush(self):
         self.original_stream.flush()
         self.file_stream.flush()
 
 
 def setup_logging():
-    """Set up logging to capture all output to a timestamped log file."""
     logs_dir = Path("logs")
     logs_dir.mkdir(exist_ok=True)
-    
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = logs_dir / f"run_{timestamp}.log"
-    
-    # Open log file
+
     log_file_handle = open(log_file, 'w', encoding='utf-8')
-    
-    # Redirect stdout and stderr to both console and file
+
     sys.stdout = TeeStream(log_file_handle, sys.__stdout__)
     sys.stderr = TeeStream(log_file_handle, sys.__stderr__)
-    
+
     print(f"=== Simulation started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===")
     print(f"=== Log file: {log_file.absolute()} ===\n")
-    
+
     return log_file_handle, log_file
 
 
-# Initialize logging
 log_handle, log_path = setup_logging()
 
 
@@ -96,7 +91,6 @@ camera_config = config.get("camera", {})
 
 mpl.rcParams['animation.ffmpeg_path'] = paths_config["ffmpeg_path"]
 
-# capture frequently tweaked parameters from configuration
 dt = simulation_config["dt"]
 
 M = grid_cell_config["modules"]
@@ -130,20 +124,16 @@ spike_detector = None
 env = PybulletEnvironment(visualize, env_model, dt, pod=pod_network, doors_option=doors_option,
                           camera_config=camera_config)
 
-# Wire thigmotaxis config flag to env
 env.thigmotaxis_enabled = config.get("thigmotaxis", {}).get("enabled", True)
 
 env.skip_left_lower_init = bool(config.get("exploration", {}).get("skip_left_lower_init", False))
 
 
-# initialize Place Cell Model
 pc_network = PlaceCellNetwork(from_data=from_data)
-# initialize Cognitive Map Model
 cognitive_map = CognitiveMapNetwork(dt, from_data=from_data)
 
 if from_data:
-    # Find the PC nearest to the actual goal location and make it the reward source.
-    # This fixes reward propagation assigning the highest reward to the wrong PC.
+    # Anchor the reward source to the PC nearest the goal location.
     goal_pc_idx = cognitive_map.set_goal_pc_by_location(env.goal_location, pc_network)
     if goal_pc_idx is not None:
         goal_pc_pos = pc_network.place_cells[goal_pc_idx].env_coordinates
@@ -154,7 +144,6 @@ if from_data:
         idx = np.argmax(cognitive_map.reward_cells)
         gc_network.set_as_target_state(pc_network.place_cells[idx].gc_connections)
 
-# Initialize exploration strategy (Active Inference or A2C)
 a2c_config = config.get("a2c_exploration", {})
 explorer_type = config.get("exploration", {}).get("type", "active_inference")
 
@@ -163,13 +152,8 @@ spatial_grid = SpatialExplorationGrid(
     cell_size=a2c_config.get("cell_size", 0.5)
 )
 
-# Both "active_inference" and "active_inference_v2" select the V2 planner.
-# The legacy v1 greedy planner was removed; the alias is preserved so
-# existing configs and benchmark scripts that pass "active_inference"
-# continue to work.
+# "active_inference" is an alias for "active_inference_v2".
 if explorer_type in ("active_inference", "active_inference_v2"):
-    # Multi-step Active Inference planner over the cognitive-map topology.
-    # See system/controller/activeInferenceV2.py for the formulation.
     ai_v2_config = config.get("active_inference_v2", {})
     ai_explorer = ActiveInferenceV2Explorer(
         cognitive_map=cognitive_map,
@@ -195,8 +179,6 @@ if explorer_type in ("active_inference", "active_inference_v2"):
           f"epistemic={ai_v2_config.get('epistemic_weight', 1.0)}, "
           f"extrinsic={ai_v2_config.get('extrinsic_weight', 2.0)})")
 elif explorer_type == "random":
-    # Random-walk baseline: same select_action API as the AIF explorer so it
-    # plugs into the same goal-vector code path in navigationPhase.
     rnd_config = config.get("random_exploration", {})
     ai_explorer = RandomExplorer(
         num_directions=16,
@@ -220,11 +202,9 @@ else:
     a2c_transitions = []
     print(f"[A2C] Initialized A2C explorer (lr={a2c_config.get('learning_rate', 0.0003)}, action_repeat=300)")
 
-# A2C policy is frozen during the navigation phase when this flag is set
-# (no `update()` calls). Used for evaluation of a pre-trained checkpoint.
+# When frozen, the A2C policy is not updated during navigation.
 a2c_frozen = bool(a2c_config.get("frozen", False))
 
-# Load a pre-trained A2C checkpoint if requested.
 a2c_checkpoint = a2c_config.get("checkpoint_path") or None
 if a2c_explorer is not None and a2c_checkpoint:
     ckpt_path = Path(a2c_checkpoint)
@@ -250,7 +230,6 @@ if video:
     live_plot = None
 else:
     fig = None
-    # Initialize live cognitive map visualization if enabled
     live_plot_enabled = plotting_config.get("live_plot", True)
     live_plot_interval = plotting_config.get("live_plot_interval", 50)
     if live_plot_enabled:
@@ -263,10 +242,9 @@ else:
     else:
         live_plot = None
 
-# Save across frames
-goal_vector_array = [np.array([0, 0])]  # array to save the calculated goal vector
+goal_vector_array = [np.array([0, 0])]
 
-# --- Metric tracking for benchmarks ---
+# Metric tracking for benchmarks
 _metrics = {
     "wall_hug_steps": 0,       # steps with nearest wall <= 0.4m
     "nav_steps_total": 0,      # total navigation steps executed
@@ -279,12 +257,10 @@ WALL_Y = 5.4  # approximate y-coordinate of the dividing wall
 
 
 def _handle_a2c_transition(env_ref, cognitive_map_ref, spatial_grid_ref, current_step):
-    """Handle A2C transition: compute intrinsic reward, store, and train periodically."""
     if env_ref.pending_transition is not None and env_ref.exploration_mode:
         pos = env_ref.xy_coordinates[-1]
         spatial_grid_ref.visit(pos[0], pos[1], current_step)
-        
-        # Compute intrinsic reward from PC-based novelty
+
         current_pc = getattr(env_ref, 'current_pc_idx', None)
         if current_pc is not None and current_pc < len(cognitive_map_ref.visit_counts):
             vc = cognitive_map_ref.visit_counts[current_pc]
@@ -296,9 +272,7 @@ def _handle_a2c_transition(env_ref, cognitive_map_ref, spatial_grid_ref, current
         env_ref.pending_transition['reward'] = reward
         a2c_transitions.append(env_ref.pending_transition)
         env_ref.pending_transition = None
-        
-        # Train A2C every 10 transitions (skipped when policy is frozen,
-        # e.g. when evaluating a pre-trained checkpoint).
+
         if len(a2c_transitions) >= 10:
             if not a2c_frozen:
                 stats = a2c_explorer.update(a2c_transitions)
@@ -306,25 +280,19 @@ def _handle_a2c_transition(env_ref, cognitive_map_ref, spatial_grid_ref, current
 
 
 
-# this function performs the simulation steps and is called by video creator or manually
 def animation_frame(frame):
     if video:
-        # calculate how many simulations steps to do for current frame
         start = frame - step
         end = frame
         if start < 0:
             start = 0
     else:
-        # run trough all simulation steps as no frames have to be exported
         start = 0
         end = frame
 
     for i in range(start, end):
-        # perform one simulation step
         exploration_phase = True if i < nr_steps_exploration else False
 
-        # Per-block timing instrumentation. Enabled when PROFILE_STEPS is
-        # set (env var) — prints accumulated time per block every N steps.
         _prof_enabled = os.environ.get("PROFILE_STEPS", "1") == "1"
         if _prof_enabled:
             import time as _t
@@ -372,17 +340,14 @@ def animation_frame(frame):
         if _prof_enabled:
             _t1 = _t.perf_counter(); _prof["pc"] += _t1 - _t0; _t0 = _t1
 
-        # cognitive map track pc firing
-        # Cap edge length at 2.0 m to prevent ghost shortcuts through
-        # walls under non-smooth motion (wall-follow, retreat, door
-        # traversal); temporal recency window still applies.
+        # cognitive map track pc firing; cap edge length to avoid shortcuts through walls.
         cognitive_map.track_movement(firing_values, created_new_pc, reward, env=env, current_step=i,
                                     pc_network=pc_network, max_connection_dist=2.0)
         if _prof_enabled:
             _t1 = _t.perf_counter(); _prof["cog_map"] += _t1 - _t0; _t0 = _t1
 
-        # Prune topology connections blocked by walls (only during navigation)
-        # Wait 100 steps for directions to stabilize, then prune every 50 steps
+        # Prune wall-blocked topology connections during navigation, after a
+        # 100-step settling period, every 50 steps.
         nav_step = i - nr_steps_exploration
         if (not exploration_phase and nav_step >= 100 and nav_step % 50 == 0
                 and getattr(env, 'current_pc_idx', None) is not None):
@@ -409,22 +374,20 @@ def animation_frame(frame):
                       f"a2c_tx={_prof['a2c_tx']:.2f} ({100*_prof['a2c_tx']/total:.0f}%)  "
                       f"PCs={cognitive_map.nr_place_cells}")
 
-        # --- Collect metrics during navigation phase ---
+        # Collect metrics during navigation phase
         if not exploration_phase:
             _metrics["nav_steps_total"] += 1
             pos = env.xy_coordinates[-1]
 
-            # Wall-hugging: use last_min_ray_dist cached by avoid_obstacles (no extra raycast)
             min_ray = getattr(env, '_last_min_ray_dist', 2.0)
             if min_ray <= 0.4:
                 _metrics["wall_hug_steps"] += 1
 
-            # Unique PCs visited
             pc_idx = getattr(env, 'current_pc_idx', None)
             if pc_idx is not None:
                 _metrics["unique_pcs"].add(pc_idx)
 
-            # Door traversal detection (crossing y ≈ WALL_Y)
+            # Door traversal: agent crosses y ≈ WALL_Y
             cur_y = float(pos[1])
             prev_y = _metrics["prev_y"]
             if prev_y is not None:
@@ -435,11 +398,7 @@ def animation_frame(frame):
                         print(f"[METRIC] First door traversal at step {i}, x={door_x:.1f}")
             _metrics["prev_y"] = cur_y
 
-        # Check if goal was reached during navigation phase — end simulation early.
-        # Radius bumped from 0.5 m to 1.0 m so that the agent isn't trapped in
-        # the goal-alley oscillation pattern (lookahead direction flips between
-        # east/west at the top wall, ping-pong positions of ~0.6-0.9 m from
-        # goal). 1.0 m captures the "the agent has effectively arrived" zone.
+        # End navigation early when the agent reaches the goal.
         GOAL_RADIUS = 1.0
         if not exploration_phase:
             any_reached = np.linalg.norm(env.xy_coordinates[-1] - env.goal_location) < GOAL_RADIUS
@@ -448,21 +407,16 @@ def animation_frame(frame):
                 print(f"[GOAL] Goal reached at step {i}! Ending simulation.")
                 break
 
-        # plot or print intermediate update in console
         if not video and i % int(nr_steps / nr_plots) == 0:
             progress_str = "Progress: " + str(int(i * 100 / nr_steps)) + "%"
             print(progress_str)
-            # plotCurrentAndTarget(gc_network.gc_modules)
-        
-        # Live cognitive map visualization (every update_interval steps)
+
         if live_plot is not None:
             live_plot.update(pc_network, cognitive_map,
                             xy_coordinates=env.xy_coordinates,
                             step=i)
 
-    # simulated steps until next frame
     if video:
-        # export current state as frame
         exploration_phase = True if frame < nr_steps_exploration else False
         plot_current_state(env, gc_network.gc_modules, f_gc, f_t, f_mon,
                            pc_network=pc_network, cognitive_map=cognitive_map,
@@ -473,13 +427,9 @@ def animation_frame(frame):
 
 
 if video:
-    # initialize video and call simulation function within
     frames = np.arange(0, nr_steps, step)
     anim = animation.FuncAnimation(fig, func=animation_frame, frames=frames, interval=1 / fps, blit=False)
 
-    # Finished simulation
-
-    # Export video
     video_output_dir.mkdir(parents=True, exist_ok=True)
 
     f = video_output_dir / "animation.mp4"
@@ -487,24 +437,19 @@ if video:
     anim.save(str(f), writer=video_writer)
     env.end_simulation()
 else:
-    # manually call simulation function
     animation_frame(nr_steps)
 
-    # Finished simulation
-
-    # Plot last state (save to file if BENCHMARK_PLOT_PATH is set, otherwise show)
+    # When BENCHMARK_PLOT_PATH is set, save the final state plot; otherwise show it.
     _plot_save_path = os.environ.get("BENCHMARK_PLOT_PATH")
     cognitive_map_plot(pc_network, cognitive_map, xy_coordinates=env.xy_coordinates,
                        environment=env_model,
                        door_positions=getattr(env, "door_positions", None),
                        save_path=_plot_save_path)
 
-    # Save place network and cognitive map to reload it later
-    pc_network.save_pc_network()  # provide filename="_navigation" to avoid overwriting the exploration phase
-    cognitive_map.save_cognitive_map()  # provide filename="_navigation" to avoid overwriting the exploration phase
+    # Save place network and cognitive map for later reloading.
+    pc_network.save_pc_network()  # pass filename="_navigation" to avoid overwriting the exploration phase
+    cognitive_map.save_cognitive_map()  # pass filename="_navigation" to avoid overwriting the exploration phase
 
-    # Persist A2C model after the run if requested (used by pretrain_a2c.py
-    # to accumulate weights across episodes).
     a2c_save_target = a2c_config.get("save_path") or None
     if a2c_explorer is not None and a2c_save_target:
         save_path = Path(a2c_save_target)
@@ -516,11 +461,11 @@ else:
         except Exception as exc:
             print(f"[A2C] WARNING: failed to save checkpoint to {save_path}: {exc}")
 
-    # Calculate the distance between goal and actual end position (only relevant for navigation phase)
+    # Distance between goal and actual end position (navigation phase only).
     error = np.linalg.norm((env.xy_coordinates[-1] + env.goal_vector) - env.goal_location)
-    env.end_simulation()  # disconnect pybullet
+    env.end_simulation()
 
-    # --- Emit structured metrics for benchmark parsing ---
+    # Structured metrics consumed by the benchmark scripts.
     nav_total = _metrics["nav_steps_total"]
     wall_hug_frac = _metrics["wall_hug_steps"] / max(nav_total, 1)
     unique_pcs = len(_metrics["unique_pcs"])
@@ -541,7 +486,7 @@ else:
     }
     print(f"[METRICS] {json.dumps(metrics_dict)}")
 
-    # Data to save to perform analysis later on
+    # Per-trial arrays saved to disk for later analysis.
     error_array = [error]
     gc_array = [gc_network.consolidate_gc_spiking()]
     position_array = [env.xy_coordinates]
@@ -550,7 +495,7 @@ else:
     progress_str = "Progress: " + str(int(1 * 100 / nr_trials)) + "% | Latest error: " + str(error)
     print(progress_str)
 
-    # for the decoder test several trials are performed one after each other
+    # Decoder test: several trials in sequence.
     for i in range(1, nr_trials):
         gc_network.load_initialized_network("s_vectors_initialized.npy")
         pc_network = PlaceCellNetwork()
@@ -574,14 +519,12 @@ else:
         progress_str = "Progress: " + str(int((i + 1) * 100 / nr_trials)) + "% | Latest error: " + str(error)
         print(progress_str)
 
-    # Directly plot and print the errors (distance between goal and actual end position)
-    # Filter out NaN values before plotting
     error_array_clean = [e for e in error_array if not np.isnan(e)]
     if len(error_array_clean) > 0:
         error_plot(error_array_clean)
     else:
         print("[WARNING] All error values are NaN, skipping error plot")
-    # Save the data of all trials in a dedicated folder
+
     experiment_output_dir.mkdir(parents=True, exist_ok=True)
 
     np.save(experiment_output_dir / "error_array", error_array)
@@ -589,11 +532,9 @@ else:
     np.save(experiment_output_dir / "position_array", position_array)
     np.save(experiment_output_dir / "vectors_array", vector_array)
 
-    # --- Finalize logging ---
     print(f"\n=== Simulation completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===")
     print(f"=== Log saved to: {log_path.absolute()} ===")
-    
-    # Restore original streams and close log file
+
     sys.stdout = sys.__stdout__
     sys.stderr = sys.__stderr__
     log_handle.close()

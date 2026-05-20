@@ -49,9 +49,7 @@ class PlaceCell:
                 modules_firing = modules_firing + 1
 
         if modules_firing == 0:
-            # No module contributed — the goal PC's stored connections do not
-            # match the current grid-cell state in any module. Return zero
-            # firing rather than crashing on division by zero.
+            # No module contributed: return zero firing to avoid division by zero.
             return 0.0
         firing = firing/modules_firing  # divide by modules that we considered to get overall firing
 
@@ -71,10 +69,7 @@ class PlaceCell:
 
 
 def compute_weights(s_vectors):
-
-    # weights = np.where(s_vectors > 0.1, 1, 0)
     weights = np.array(s_vectors)  # decided to not change anything here, but do it when computing firing
-
     return weights
 
 
@@ -84,7 +79,6 @@ class PlaceCellNetwork:
         self.place_cells = []  # array of place cells
 
         if from_data:
-            # Load place cells if wanted
             gc_connections = np.load("data/pc_model/gc_connections.npy")
             env_coordinates = np.load("data/pc_model/env_coordinates.npy")
 
@@ -103,12 +97,7 @@ class PlaceCellNetwork:
         self.place_cells.append(pc)
 
     def track_movement(self, gc_modules, reward_first_found):
-        """Keeps track of current grid cell firing.
-
-        Args:
-            gc_modules: grid cell modules
-            reward_first_found: bool, if reward was just found
-        """
+        """Keeps track of current grid cell firing."""
 
         firing_values = self.compute_firing_values(gc_modules)
 
@@ -125,14 +114,7 @@ class PlaceCellNetwork:
         return [firing_values, created_new_pc]
 
     def compute_firing_values(self, gc_modules, virtual=False, axis=None, plot=False):
-        """Computes firing values for all place cells.
-
-        Args:
-            gc_modules: grid cell modules
-            virtual: use virtual spiking (for linear lookahead)
-            axis: project firing onto axis (for linear lookahead)
-            plot: enable debug plotting
-        """
+        """Computes firing values for all place cells."""
 
         s_vectors = np.empty((len(gc_modules), len(gc_modules[0].s)))
         # Consolidate grid cell spiking vectors that we want to consider
@@ -162,7 +144,7 @@ class PlaceCellNetwork:
         directory = "data/pc_model/"
         if not os.path.exists(directory):
             os.makedirs(directory)
-            
+
         np.save("data/pc_model/gc_connections" + filename + ".npy", gc_connections)
         np.save("data/pc_model/env_coordinates" + filename + ".npy", env_coordinates)
 

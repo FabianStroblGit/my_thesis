@@ -17,7 +17,6 @@ def rec_d(d):
     return weight
 
 
-# Computes distance between
 def compute_ds(x1, x2):
     """Calculates distance in along one axis between x1 and x2
     x1: vector of x coordinates (eg. [0, 0, 0, 1, 1, 1, 2, 2, 2]) of size n^2
@@ -75,7 +74,6 @@ class GridCellModule:
         # connection weight matrix from each to each neuron
         self.w = np.random.random_sample((array_length, array_length))
 
-        # self.h = np.random.random_sample((array_length, 2))
         self.s = np.random.rand(array_length) * 10**-4  # firing vector of size (n^2 x 1); random firing at beginning
         self.t = self.s  # target grid cell firing (of goal or home-base)
         self.s_virtual = self.s  # used for linear lookahead to preplay trajectories, without actually moving
@@ -83,10 +81,9 @@ class GridCellModule:
 
         self.s_video_array = []
 
-        # If we are not loading grid cell data we have to calculate grid cell sheet weights
+        # Calculate grid cell sheet weights if not loading from data.
+        # Refer to thesis for concept of grid cell sheet and how weights are computed.
         if data is None:
-            # Refer to thesis for concept of grid cell sheet and how weights are computed
-
             headings = [[-1, 0], [0, 1], [0, -1], [1, 0]]  # [W, N, S, E]
 
             grid = np.indices((n, n))  # grid function to create x and y vectors
@@ -125,12 +122,8 @@ class GridCellModule:
             # apply implicit euler once to update spiking
             s = implicit_euler(s0, self.w, b, tau, dt)
         else:
-            # Alternative approach to use built in solver to calculate bigger time steps at once, large computation time
-            # Because Implicit euler is unstable for large dt
-            # sol = solve_ivp(ds_dt, (0, dt_alternative), s0, t_eval=[dt_alternative], args=(self.w, b, tau))
-            # s = sol.y[:, 0]
-
-            # It is faster to just apply the implicit euler several times until targeted time step is reached
+            # Apply implicit euler several times until targeted time step is reached
+            # (implicit euler is unstable for large dt).
             for n in range(int(dt_alternative/self.dt)):
                 s0 = implicit_euler(s0, self.w, b, tau, self.dt)
             s = s0
@@ -151,7 +144,6 @@ class GridCellNetwork:
         self.dt = dt
 
         if not from_data:
-            # Create new GridCellModules
             for m in range(M):
                 gm = compute_gm(m, M, gmin, gmax)
                 gc = GridCellModule(n, gm, dt)
@@ -161,7 +153,6 @@ class GridCellNetwork:
             nr_steps_init = 1000
             self.initialize_network(nr_steps_init, "s_vectors_initialized.npy")
         else:
-            # Load previous data
             w_vectors = np.load("data/gc_model/w_vectors.npy")
             h_vectors = np.load("data/gc_model/h_vectors.npy")
             gm_values = np.load("data/gc_model/gm_values.npy")
